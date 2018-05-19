@@ -24,6 +24,13 @@ FIELD_TRANSLATION_EN = "Translation (en)"
 FIELD_PHONETIC_NOTATION = "Phonetic Notation"
 FIELD_SOUND = "Sound"
 FIELD_NOTE = "Note"
+FIELD_IS_SENTENCE = "Is Sentence"
+FIELD_HAS_DICT = "Has Dict"
+
+FIELD_VALUE_FALSE = ""
+FIELD_VALUE_TRUE = "YES"
+
+TAG_SENTENCE = "sentence"
 
 def get_url(hangul):
     return "https://krdict.korean.go.kr/eng/smallDic/searchResult?nation=eng&nationCode=6&ParaWordNo=&mainSearchWord="+hangul
@@ -64,6 +71,47 @@ def download_sound_file(media, word, url):
     filename = media.stripIllegal("korean-" + word + ".mp3")
     media.writeData(unicode(filename), file_contents)
     return filename
+
+def is_sentence(word):
+    return "." in word or "?" in word
+
+def set_sentence_field(note):
+    if is_sentence(note[FIELD_HANGUL]):
+        note[FIELD_IS_SENTENCE] = FIELD_VALUE_TRUE
+        if not note.hasTag(TAG_SENTENCE):
+            note.addTag(TAG_SENTENCE)
+    else:
+        note[FIELD_IS_SENTENCE] = FIELD_VALUE_FALSE
+        if note.hasTag(TAG_SENTENCE):
+            note.delTag(TAG_SENTENCE)
+
+def cmd_check_sentence(browser):
+    selected_note_ids = browser.selectedNotes()
+
+    progress = 0
+    skipped_wrong_notetype = 0
+
+    mw.progress.start(max=len(selected_note_ids))
+
+    for note_id in selected_note_ids:
+        note = mw.col.getNote(note_id)
+
+        noteType = note.model()['name'].lower()
+
+        if noteType != NOTE_TYPE:
+            # different note
+            skipped_wrong_notetype += 1
+            continue
+
+        set_sentence_field(note)
+
+        note.flush()
+
+        progress += 1
+        mw.progress.update(value=progress)
+
+    mw.progress.finish()
+    mw.reset()
 
 def cmd_change_sound_selected(browser, mode):
     selected_note_ids = browser.selectedNotes()
@@ -127,6 +175,7 @@ def cmd_autofill_selected(browser):
         # ]
     progress = 0
     skipped_wrong_notetype = 0
+    skipped_sentence = 0
     skipped_no_dict_entry = 0
     skipped_translation_field = 0
     skipped_phonetic_field = 0
@@ -145,12 +194,22 @@ def cmd_autofill_selected(browser):
             skipped_wrong_notetype += 1
             continue
 
+        set_sentence_field(note)
+
+        if is_sentence(note[FIELD_HANGUL]):
+            skipped_sentence += 1
+            continue
+
         hangul, reading, translation, sound_url = scrape_korean_dict(note[FIELD_HANGUL])
 
         if hangul != note[FIELD_HANGUL]:
             # word not found in dictionary
+            note[FIELD_HAS_DICT] = FIELD_VALUE_FALSE
             skipped_no_dict_entry += 1
+            note.flush()
             continue
+        else:
+            note[FIELD_HAS_DICT] = FIELD_VALUE_TRUE
 
         if note[FIELD_TRANSLATION_EN]:
             # already contains data, skip
@@ -184,12 +243,13 @@ def cmd_autofill_selected(browser):
     showInfo("""
 Out of %d selected cards:
 - %d were skipped because they were not korean cards
+- %d were skipped because they were sentences
 - %d were skipped because they had no entry in the dictionary
 - %d non-empty translation fields were skipped
 - %d non-empty phonetic fields were skipped
 - %d non-empty sound fields were skipped
 - %d cards did not have a sound file in the dictionary
-            """ % (len(selected_note_ids), skipped_wrong_notetype, skipped_no_dict_entry, skipped_translation_field, skipped_phonetic_field, skipped_sound_field, no_sound), parent=browser)
+            """ % (len(selected_note_ids), skipped_wrong_notetype, skipped_sentence, skipped_no_dict_entry, skipped_translation_field, skipped_phonetic_field, skipped_sound_field, no_sound), parent=browser)
 
 def gui_browser_menus():
     """
@@ -225,6 +285,12 @@ def gui_browser_menus():
         append = QAction("Append sound to selection", browser)
         append.triggered.connect(lambda: cmd_change_sound_selected(browser, "append"))
         menu.addAction(append)
+
+        menu.addSeparator()
+
+        checkSentence = QAction("Check if card is sentence", browser)
+        checkSentence.triggered.connect(lambda: cmd_check_sentence(browser))
+        menu.addAction(checkSentence)
 
     addHook(
         'browser.setupMenus',
