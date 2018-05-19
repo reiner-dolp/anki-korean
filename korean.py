@@ -15,7 +15,9 @@ sys.path.append(vendor_dir)
 
 from lxml import etree
 import requests
+
 import re
+import hashlib
 
 NOTE_TYPE = "korean"
 FIELD_HANGUL = "Hangul"
@@ -68,7 +70,8 @@ def scrape_korean_dict(hangul):
 
 def download_sound_file(media, word, url):
     file_contents = requests.get(url).content
-    filename = media.stripIllegal("korean-" + word + ".mp3")
+    digest = hashlib.sha224(file_contents).hexdigest()[:12]
+    filename = media.stripIllegal("korean-" + word.replace(" ", "_") + "-" + digest + ".mp3")
     media.writeData(unicode(filename), file_contents)
     return filename
 
