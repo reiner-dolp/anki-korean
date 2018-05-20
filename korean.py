@@ -75,6 +75,50 @@ def download_sound_file(media, word, url):
     media.writeData(unicode(filename), file_contents)
     return filename
 
+def normalize_hangul(hangul_html):
+    utf8htmlparser = etree.HTMLParser(encoding="utf-8")
+    tree = etree.HTML(hangul_html, parser=utf8htmlparser)
+    hangul_text_list = tree.xpath('//text()')
+    hangul_text_str = " ".join(hangul_text_list)
+    single_space = re.sub('\s+',' ', hangul_text_str)
+    return single_space.strip().replace(" .", ".").replace(" ?", "?").replace(" !", "!")
+
+def cmd_normalize_hangul(browser):
+    selected_note_ids = browser.selectedNotes()
+
+    progress = 0
+    skipped_wrong_notetype = 0
+    changed = 0
+
+    mw.progress.start(max=len(selected_note_ids))
+
+    for note_id in selected_note_ids:
+        note = mw.col.getNote(note_id)
+
+        noteType = note.model()['name'].lower()
+
+        if noteType != NOTE_TYPE:
+            # different note
+            skipped_wrong_notetype += 1
+            continue
+
+        prev = note[FIELD_HANGUL]
+        after = normalize_hangul(prev)
+
+        if prev != after:
+            changed += 1
+            note[FIELD_HANGUL] = after
+            note.flush()
+
+        progress += 1
+        mw.progress.update(value=progress)
+
+    mw.progress.finish()
+    mw.reset()
+
+    cnt = len(selected_note_ids)
+    showInfo("Out of %d selected cards, %d were hangul cards. %d cards were changed." % (cnt, cnt - skipped_wrong_notetype, changed), parent=browser)
+
 def is_sentence(word):
     return "." in word or "?" in word
 
@@ -294,6 +338,12 @@ def gui_browser_menus():
         checkSentence = QAction("Check if card is sentence", browser)
         checkSentence.triggered.connect(lambda: cmd_check_sentence(browser))
         menu.addAction(checkSentence)
+
+        menu.addSeparator()
+
+        normalize = QAction("Clean up hangul", browser)
+        normalize.triggered.connect(lambda: cmd_normalize_hangul(browser))
+        menu.addAction(normalize)
 
     addHook(
         'browser.setupMenus',
