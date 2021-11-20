@@ -8,7 +8,7 @@ import os
 import sys
 
 parent_dir = os.path.abspath(os.path.dirname(__file__))
-vendor_dir = os.path.join(parent_dir, 'test/vendor')
+vendor_dir = os.path.join(parent_dir, 'vendor2', 'Lib', 'site-packages')
 
 sys.path.append(vendor_dir)
 # ------
@@ -19,7 +19,7 @@ import requests
 import re
 import hashlib
 
-NOTE_TYPE = "korean"
+NOTE_TYPE = ["korean", "korean from memrise"]
 FIELD_HANGUL = "Hangul"
 FIELD_TRANSLATION = "Translation"
 FIELD_TRANSLATION_EN = "Translation (en)"
@@ -38,7 +38,7 @@ def get_url(hangul):
     return "https://krdict.korean.go.kr/eng/smallDic/searchResult?nation=eng&nationCode=6&ParaWordNo=&mainSearchWord="+hangul
 
 def cleanup_text(xpathtext):
-    as_string = [unicode(v) if not isinstance(v, str) else v for v in xpathtext]
+    as_string = [str(v) if not isinstance(v, str) else v for v in xpathtext]
     nowhitespace = [v.strip() for v in as_string]
     return ''.join(nowhitespace)
 
@@ -46,8 +46,8 @@ def cleanup_reading(xpathtext):
     return cleanup_text(cleanup_text(xpathtext).strip("[]"))
 
 def extract_soundfile_url(xpathtext):
-    as_string = unicode(xpathtext) if not isinstance(xpathtext, str) else xpathtext
-    urls = re.findall("url:'(.*?)'", as_string)
+    as_string = str(xpathtext) if not isinstance(xpathtext, str) else xpathtext
+    urls = re.findall("fnSoundPlay\('(.*?)'\)", as_string)
     return urls[0]
 
 def scrape_korean_dict(hangul):
@@ -58,10 +58,10 @@ def scrape_korean_dict(hangul):
     page = requests.get(get_url(hangul))
     tree = etree.HTML(page.content, parser=utf8htmlparser)
 
-    hangul = tree.xpath('//li[@class="printArea"][1]/p[1]/a[1]/strong[1]/text()')
-    reading = tree.xpath('//li[@class="printArea"][1]/p[1]/font[last()]/text()')
-    translation = tree.xpath('//li[@class="printArea"][1]/ol[1]/li[1]/p[1]/text()')
-    sound = tree.xpath('//li[@class="printArea"][1]/p[1]/font[last()]/img[1]/@onclick')
+    hangul = tree.xpath('//div[@class="search_result "][1]/dl[1]/dt[1]/a[1]/span[1]/text()')
+    reading = tree.xpath('//div[@class="search_result "][1]/dl[1]/dt[1]/span[@class="search_sub"][1]/span[@class="search_sub"][1]/text()')
+    translation = tree.xpath('//div[@class="search_result "][1]/dl[1]/dd[@class="manyLang6 "][1]/text()')
+    sound = tree.xpath('//div[@class="search_result "][1]//a[@class="sound"][1]/@href')
 
     if len(sound):
         return cleanup_text(hangul), cleanup_reading(reading), cleanup_text(translation), extract_soundfile_url(sound[0])
@@ -72,10 +72,13 @@ def download_sound_file(media, word, url):
     file_contents = requests.get(url).content
     digest = hashlib.sha224(file_contents).hexdigest()[:12]
     filename = media.stripIllegal("korean-" + word.replace(" ", "_") + "-" + digest + ".mp3")
-    media.writeData(unicode(filename), file_contents)
+    media.writeData(str(filename), file_contents)
     return filename
 
 def normalize_hangul(hangul_html):
+    if hangul_html is None or hangul_html == "":
+        return ""
+
     utf8htmlparser = etree.HTMLParser(encoding="utf-8")
     tree = etree.HTML(hangul_html, parser=utf8htmlparser)
     hangul_text_list = tree.xpath('//text()')
@@ -97,7 +100,7 @@ def cmd_normalize_hangul(browser):
 
         noteType = note.model()['name'].lower()
 
-        if noteType != NOTE_TYPE:
+        if noteType not in NOTE_TYPE:
             # different note
             skipped_wrong_notetype += 1
             continue
@@ -145,7 +148,7 @@ def cmd_check_sentence(browser):
 
         noteType = note.model()['name'].lower()
 
-        if noteType != NOTE_TYPE:
+        if noteType not in NOTE_TYPE:
             # different note
             skipped_wrong_notetype += 1
             continue
@@ -175,12 +178,14 @@ def cmd_change_sound_selected(browser, mode):
 
         noteType = note.model()['name'].lower()
 
-        if noteType != NOTE_TYPE:
+        if noteType not in NOTE_TYPE:
             # different note
             skipped_wrong_notetype += 1
             continue
 
         hangul, reading, translation, sound_url = scrape_korean_dict(note[FIELD_HANGUL])
+
+        # showInfo("""%s,%s,%s,%s,%s""" % (note[FIELD_HANGUL], hangul, reading, translation, sound_url))
 
         if hangul != note[FIELD_HANGUL]:
             # word not found in dictionary
@@ -236,7 +241,7 @@ def cmd_autofill_selected(browser):
 
         noteType = note.model()['name'].lower()
 
-        if noteType != NOTE_TYPE:
+        if noteType not in NOTE_TYPE:
             # different note
             skipped_wrong_notetype += 1
             continue
@@ -304,13 +309,11 @@ def gui_browser_menus():
     disables and enables it upon selection of items.
     """
 
-    from PyQt4 import QtGui
-
 
     def on_setup_menus(browser):
         """Create a menu and add browser actions to it."""
 
-        menu = QtGui.QMenu("Reiner's Korean", browser.form.menubar)
+        menu = QMenu("Reiner's Korean", browser.form.menubar)
         browser.form.menubar.addMenu(menu)
         browser.form.menuKorean = menu
 
@@ -351,3 +354,4 @@ def gui_browser_menus():
     )
 
 gui_browser_menus()
+# print(scrape_korean_dict("증상"))
