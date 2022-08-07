@@ -19,6 +19,9 @@ import requests
 import re
 import hashlib
 
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 NOTE_TYPE = ["korean", "korean from memrise"]
 FIELD_HANGUL = "Hangul"
 FIELD_TRANSLATION = "Translation"
@@ -55,23 +58,48 @@ def scrape_korean_dict(hangul):
     # the encoding is incorrectly guessed without this explicit
     # specification as the HTML does not contain a charset meta tag
     utf8htmlparser = etree.HTMLParser(encoding="utf-8")
-    page = requests.get(get_url(hangul))
+    page = requests.get(get_url(hangul), verify=False)
     tree = etree.HTML(page.content, parser=utf8htmlparser)
 
     hangul = tree.xpath('//div[@class="search_result "][1]/dl[1]/dt[1]/a[1]/span[1]/text()')
     reading = tree.xpath('//div[@class="search_result "][1]/dl[1]/dt[1]/span[@class="search_sub"][1]/span[@class="search_sub"][1]/text()')
     translation = tree.xpath('//div[@class="search_result "][1]/dl[1]/dd[@class="manyLang6 "][1]/text()')
+    # in some cases there is a number followed by a dot and space for enumeration, only the dot and whitespace is tracked, so remove it if it is found...
+    translation = cleanup_text(translation)
+    if translation[0] == ".":
+        translation = translation[1:]
+
+    translation = translation.lstrip()
+
     sound = tree.xpath('//div[@class="search_result "][1]//a[@class="sound"][1]/@href')
 
     if len(sound):
-        return cleanup_text(hangul), cleanup_reading(reading), cleanup_text(translation), extract_soundfile_url(sound[0])
+        return cleanup_text(hangul), cleanup_reading(reading), translation, extract_soundfile_url(sound[0])
     else:
-        return cleanup_text(hangul), cleanup_reading(reading), cleanup_text(translation), None
+        return cleanup_text(hangul), cleanup_reading(reading), translation, None
+
+
+def escape_str(s):
+    charList=[]
+
+    s = s.lower()
+    
+    for i in [ord(x) for x in s]:
+        if i >= 0x61 and i <= 0x7A:
+            charList.append(chr(i))
+        elif i == 0x20:
+            charList.append("_")
+        else:
+            charList.append('-u%04x' % i )
+    
+    res = ''.join(charList)
+    return res
+
 
 def download_sound_file(media, word, url):
-    file_contents = requests.get(url).content
+    file_contents = requests.get(url, verify=False).content
     digest = hashlib.sha224(file_contents).hexdigest()[:12]
-    filename = media.stripIllegal("korean-" + word.replace(" ", "_") + "-" + digest + ".mp3")
+    filename = media.stripIllegal("korean-" + escape_str(word) + "-" + digest + ".mp3")
     media.writeData(str(filename), file_contents)
     return filename
 
@@ -354,4 +382,4 @@ def gui_browser_menus():
     )
 
 gui_browser_menus()
-# print(scrape_korean_dict("증상"))
+# print(scrape_korean_dict("어깨"))
